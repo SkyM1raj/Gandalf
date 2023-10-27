@@ -1,1 +1,2 @@
-Mise en Place d'un Pare-feu Applicatif Web (WAF)
+def web_application_firewall(request):
+    # ...
