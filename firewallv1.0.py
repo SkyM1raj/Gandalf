@@ -1,34 +1,32 @@
 import socket
-import threading
 import time
+import threading
 import json
 from netfilterqueue import NetfilterQueue
 from scapy.all import *
+from cryptography.fernet import Fernet  # Ajout de l'import pour Fernet
 
-# Constants
+# Constants and global variables from the first script
 SERVER_IP = '0.0.0.0'
 SERVER_PORT = 8888
 ALLOWED_IPS = {'127.0.0.1', '192.168.1.2'}
 CONNECTION_INTERVAL = 5
 MAX_CONNECTIONS_PER_IP = 10
-
-# Générez une clé secrète pour AES-256
 SECRET_KEY = b'votre_cle_secrete_de_32_octets'
-
-# Créez un objet Fernet avec la clé secrète
 cipher_suite = Fernet(SECRET_KEY)
-
-# Chiffrez le mot de passe administrateur
 ADMIN_PASSWORD_CIPHERTEXT = cipher_suite.encrypt(b"monmotdepasse")
-
-# Variables globales
 last_connection_times = {}
 lock = threading.Lock()
 lock_counts = threading.Lock()
 is_locked = True
+LOG_FILE = "firewall_logs.log"
 
-LOG_FILE = "firewall_logs.log" # Fichier de journal
+#Custom Imports
+from imports.protocols import ethernet_frame, ipv4_packet, icmp_packet, udp_packet, tcp_packet
+from imports.helper import get_interfaces, pprint, compare_rules, PROTOCOLS
+from imports.validator import validate_with_route_table
 
+logging.basicConfig(level=logging.INFO, filename="firewall.log", filemode="w")
 
 def write_log(message):
     with open(LOG_FILE, "a") as log_file:
@@ -160,56 +158,57 @@ def handle_client(client_socket, client_addr):
 
 # NetfilterQueue setup
 def firewall(pkt):
-	sca = IP(pkt.get_payload())
+    sca = IP(pkt.get_payload())
 
-	if(sca.src in ListOfBannedIpAddr):
-		print(sca.src, "is a incoming IP address that is banned by the firewall.")
-		pkt.drop()
-		return 
+    if sca.src in ListOfBannedIpAddr:
+        print(sca.src, "is an incoming IP address that is banned by the firewall.")
+        pkt.drop()
+        return
 
-	if(sca.haslayer(TCP)):
-		t = sca.getlayer(TCP)
-		if(t.dport in ListOfBannedPorts):
-			print(t.dport, "is a destination port that is blocked by the firewall.")
-			pkt.drop()
-			return 
+    if sca.haslayer(TCP):
+        t = sca.getlayer(TCP)
+        if t.dport in ListOfBannedPorts:
+            print(t.dport, "is a destination port that is blocked by the firewall.")
+            pkt.drop()
+            return
 
-	if(sca.haslayer(UDP)):
-		t = sca.getlayer(UDP)
-		if(t.dport in ListOfBannedPorts):
-			print(t.dport, "is a destination port that is blocked by the firewall.")
-			pkt.drop()
-			return 
+    if sca.haslayer(UDP):
+        t = sca.getlayer(UDP)
+        if t.dport in ListOfBannedPorts:
+            print(t.dport, "is a destination port that is blocked by the firewall.")
+            pkt.drop()
+            return
 
-	if(True in [sca.src.find(suff)==0 for suff in ListOfBannedPrefixes]):
-		print("Prefix of " + sca.src + " is banned by the firewall.")
-		pkt.drop()
-		return
+    if True in [sca.src.find(suff) == 0 for suff in ListOfBannedPrefixes]:
+        print("Prefix of " + sca.src + " is banned by the firewall.")
+        pkt.drop()
+        return
 
-	if(BlockPingAttacks and sca.haslayer(ICMP)): #attempt at preventing hping3
-		t = sca.getlayer(ICMP)
-		if(t.code==0):
-			if(sca.src in DictOfPackets):
-				temptime = list(DictOfPackets[sca.src])
-				if(len(DictOfPackets[sca.src]) >= PacketThreshold):
-					if(time.time()-DictOfPackets[sca.src][0] <= TimeThreshold):
-						print("Ping by %s blocked by the firewall (too many requests in short span of time)." %(sca.src))
-						pkt.drop()
-						return
-					else:
-						DictOfPackets[sca.src].pop(0)
-						DictOfPackets[sca.src].append(time.time())
-				else:
-					DictOfPackets[sca.src].append(time.time())
-			else:
-				DictOfPackets[sca.src] = [time.time()]
+    if BlockPingAttacks and sca.haslayer(ICMP):  # attempt at preventing hping3
+        t = sca.getlayer(ICMP)
+        if t.code == 0:
+            if sca.src in DictOfPackets:
+                temptime = list(DictOfPackets[sca.src])
+                if len(DictOfPackets[sca.src]) >= PacketThreshold:
+                    if time.time() - DictOfPackets[sca.src][0] <= TimeThreshold:
+                        print("Ping by %s blocked by the firewall (too many requests in a short span of time)." % (
+                            sca.src))
+                        pkt.drop()
+                        return
+                    else:
+                        DictOfPackets[sca.src].pop(0)
+                        DictOfPackets[sca.src].append(time.time())
+                else:
+                    DictOfPackets[sca.src].append(time.time())
+            else:
+                DictOfPackets[sca.src] = [time.time()]
 
-		#print("Packet from %s accepted and forwarded to IPTABLES" %(sca.src))		
-		pkt.accept()
-		return 
-	
-	#print("Packet from %s accepted and forwarded to IPTABLES" %(sca.src)) #commented coz its annoying
-	pkt.accept()
+        # print("Packet from %s accepted and forwarded to IPTABLES" %(sca.src))
+        pkt.accept()
+        return
+
+    # print("Packet from %s accepted and forwarded to IPTABLES" %(sca.src)) #commented coz its annoying
+    pkt.accept()
 
 def start_firewall_and_server():
     nfqueue = NetfilterQueue()
@@ -240,6 +239,21 @@ if __name__ == "__main__":
     admin_thread.start()
     real_time_monitoring_thread = threading.Thread(target=real_time_monitoring)
     real_time_monitoring_thread.start()
+
+    interfaces = get_interfaces()
+
+    if len(interfaces.items()) < 4:
+        print("Not enough interfaces")
+        exit()
+
+    print("FIREWALL IS RUNNING ")
+    try:
+        while True:
+            for _ in range(10):
+                time.sleep(.2)
+    except KeyboardInterrupt:
+        print("\nEXITING FIREWALL")
+        exit(1)
 
     # Starting
     start_firewall_and_server()
