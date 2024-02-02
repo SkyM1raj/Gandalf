@@ -2,6 +2,7 @@ import socket
 import time
 import threading
 import json
+import logging
 from netfilterqueue import NetfilterQueue
 from scapy.all import *
 from cryptography.fernet import Fernet  # Ajout de l'import pour Fernet
@@ -20,6 +21,7 @@ lock = threading.Lock()
 lock_counts = threading.Lock()
 is_locked = True
 LOG_FILE = "firewall_logs.log"
+connection_counts = {}
 
 #Custom Imports
 from imports.protocols import ethernet_frame, ipv4_packet, icmp_packet, udp_packet, tcp_packet
@@ -216,14 +218,15 @@ class pywall:
         self.timeout = timeout
         self.arp_spoofing_detected = None
 
-    def get_mac_address(self, target):
-        """
-        Get mac address of target
-        """
-        result = srp(
-            Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=target), timeout=3, verbose=0
-        )[0]
-        result = [received.hwsrc for sent, received in result]
+def get_mac_address(self, target):
+    """
+    Get mac address of target
+    """
+    result = srp(
+        Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=target), timeout=3, verbose=0
+    )[0]
+    result = [received.hwsrc for sent, received in result]
+    return result  # Ajout de cette ligne
 
     def arp_spoofing_detection(self):
         """
@@ -300,7 +303,7 @@ def handle_client(client_socket, client_addr):
     finally:
         client_socket.close()
         reset_connection_count(client_ip)
-
+        
 def start_firewall_and_server():
     nfqueue = NetfilterQueue()
     nfqueue.bind(1, firewall)
@@ -341,9 +344,10 @@ if __name__ == "__main__":
     try:
         while True:
             for _ in range(10):
-                time.sleep(.2)
+                time.sleep(0.2)
     except KeyboardInterrupt:
         print("\nEXITING FIREWALL")
+        # Terminer les threads proprement ici (par exemple, en utilisant des signaux d'arrêt)
         exit(1)
 
     # Starting
