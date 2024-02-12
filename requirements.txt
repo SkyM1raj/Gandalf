@@ -1,3 +1,8 @@
-paramiko
-scapy
+socket
+time
+threading 
+json 
+logging 
 netfilterqueue
+scapy
+cryptography.
