@@ -5,7 +5,7 @@ import json
 import logging
 from netfilterqueue import NetfilterQueue
 from scapy.all import *
-from cryptography.fernet import Fernet  # Ajout de l'import pour Fernet
+from cryptography.fernet import Fernet  
 
 # Constants and global variables from the first script
 SERVER_IP = '0.0.0.0'
@@ -24,9 +24,9 @@ LOG_FILE = "firewall_logs.log"
 connection_counts = {}
 
 #Custom Imports
-from imports.protocols import ethernet_frame, ipv4_packet, icmp_packet, udp_packet, tcp_packet
-from imports.helper import get_interfaces, pprint, compare_rules, PROTOCOLS
-from imports.validator import validate_with_route_table
+from import.protocols import *
+from import.helper import *
+from import.validator import *
 
 logging.basicConfig(level=logging.INFO, filename="firewall.log", filemode="w")
 
