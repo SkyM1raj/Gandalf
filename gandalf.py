@@ -5,9 +5,10 @@ import json
 import logging
 from netfilterqueue import NetfilterQueue
 from scapy.all import *
-from cryptography.fernet import Fernet  
+from cryptography.fernet import Fernet
+from importlib import import_module
 
-# Constants and global variables from the first script
+# Constants and global variables
 SERVER_IP = '0.0.0.0'
 SERVER_PORT = 8888
 ALLOWED_IPS = {'127.0.0.1', '192.168.1.2'}
@@ -23,16 +24,10 @@ is_locked = True
 LOG_FILE = "firewall_logs.log"
 connection_counts = {}
 
-#Custom Imports
-from import.protocols import *
-from import.helper import *
-from import.validator import *
-
-logging.basicConfig(level=logging.INFO, filename="firewall.log", filemode="w")
+logging.basicConfig(level=logging.INFO, filename=LOG_FILE, filemode="w")
 
 def write_log(message):
-    with open(LOG_FILE, "a") as log_file:
-        log_file.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
+    logging.info(message)
 
 def is_valid_ip(ip):
     try:
@@ -67,7 +62,7 @@ def verify_admin_password(password):
 def handle_admin_commands():
     while True:
         command = input("Entrez une commande admin (lock/unlock/exit): ").strip().lower()
-        if command == "lock" or command == "unlock":
+        if command in ["lock", "unlock"]:
             password = input("Entrez le mot de passe admin : ")
             if verify_admin_password(password):
                 toggle_lock(password)
@@ -81,18 +76,12 @@ def handle_admin_commands():
 
 def too_many_connections(ip):
     with lock_counts:
-        if ip in connection_counts:
-            count = connection_counts[ip]
-        else:
-            count = 0
+        count = connection_counts.get(ip, 0)
         return count >= MAX_CONNECTIONS_PER_IP
 
 def increment_connection_count(ip):
     with lock_counts:
-        if ip in connection_counts:
-            connection_counts[ip] += 1
-        else:
-            connection_counts[ip] = 1
+        connection_counts[ip] = connection_counts.get(ip, 0) + 1
 
 def reset_connection_count(ip):
     with lock_counts:
@@ -113,7 +102,7 @@ try:
     BlockPingAttacks = firewall_rules.get("BlockPingAttacks", True)
 
 except FileNotFoundError:
-    print("Rule file (firewallrules.json) not found, setting default values")
+    write_log("Rule file (firewallrules.json) not found, setting default values")
     ListOfBannedIpAddr = []
     ListOfBannedPorts = []
     ListOfBannedPrefixes = []
@@ -128,8 +117,16 @@ def handle_client(client_socket, client_addr):
     client_ip, _ = client_addr
 
     try:
-        if is_locked:
+        # ARP Spoofing detection
+        arp_detector = pywall(iface="your_network_interface", timeout=15)
+        arp_spoofing_detected = arp_detector.control()
+
+        if is_locked and not arp_spoofing_detected:
             response = b"Pare-feu verrouillé. Veuillez entrer le mot de passe admin.\n"
+        elif not is_locked and arp_spoofing_detected:
+            response = b"Détection ARP spoofing. Veuillez entrer le mot de passe admin.\n"
+        elif is_locked and arp_spoofing_detected:
+            response = b"Pare-feu verrouillé et détection ARP spoofing. Veuillez entrer le mot de passe admin.\n"
         else:
             if not is_valid_ip(client_ip):
                 response = b"Adresse IP invalide.\n"
@@ -158,31 +155,30 @@ def handle_client(client_socket, client_addr):
         client_socket.close()
         reset_connection_count(client_ip)
 
-# NetfilterQueue setup
 def firewall(pkt):
     sca = IP(pkt.get_payload())
 
     if sca.src in ListOfBannedIpAddr:
-        print(sca.src, "is an incoming IP address that is banned by the firewall.")
+        write_log(f"{sca.src} is an incoming IP address that is banned by the firewall.")
         pkt.drop()
         return
 
     if sca.haslayer(TCP):
         t = sca.getlayer(TCP)
         if t.dport in ListOfBannedPorts:
-            print(t.dport, "is a destination port that is blocked by the firewall.")
+            write_log(f"{t.dport} is a destination port that is blocked by the firewall.")
             pkt.drop()
             return
 
     if sca.haslayer(UDP):
         t = sca.getlayer(UDP)
         if t.dport in ListOfBannedPorts:
-            print(t.dport, "is a destination port that is blocked by the firewall.")
+            write_log(f"{t.dport} is a destination port that is blocked by the firewall.")
             pkt.drop()
             return
 
-    if True in [sca.src.find(suff) == 0 for suff in ListOfBannedPrefixes]:
-        print("Prefix of " + sca.src + " is banned by the firewall.")
+    if any(sca.src.startswith(suff) for suff in ListOfBannedPrefixes):
+        write_log(f"Prefix of {sca.src} is banned by the firewall.")
         pkt.drop()
         return
 
@@ -190,11 +186,9 @@ def firewall(pkt):
         t = sca.getlayer(ICMP)
         if t.code == 0:
             if sca.src in DictOfPackets:
-                temptime = list(DictOfPackets[sca.src])
                 if len(DictOfPackets[sca.src]) >= PacketThreshold:
                     if time.time() - DictOfPackets[sca.src][0] <= TimeThreshold:
-                        print("Ping by %s blocked by the firewall (too many requests in a short span of time)." % (
-                            sca.src))
+                        write_log(f"Ping by {sca.src} blocked by the firewall (too many requests in a short span of time).")
                         pkt.drop()
                         return
                     else:
@@ -205,11 +199,6 @@ def firewall(pkt):
             else:
                 DictOfPackets[sca.src] = [time.time()]
 
-        # print("Packet from %s accepted and forwarded to IPTABLES" %(sca.src))
-        pkt.accept()
-        return
-
-    # print("Packet from %s accepted and forwarded to IPTABLES" %(sca.src)) #commented coz its annoying
     pkt.accept()
 
 class pywall:
@@ -218,21 +207,14 @@ class pywall:
         self.timeout = timeout
         self.arp_spoofing_detected = None
 
-def get_mac_address(self, target):
-    """
-    Get mac address of target
-    """
-    result = srp(
-        Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=target), timeout=3, verbose=0
-    )[0]
-    result = [received.hwsrc for sent, received in result]
-    return result  # Ajout de cette ligne
+    def get_mac_address(self, target):
+        result = srp(
+            Ether(dst="ff:ff:ff:ff:ff:ff") / ARP(pdst=target), timeout=3, verbose=0
+        )[0]
+        result = [received.hwsrc for sent, received in result]
+        return result
 
     def arp_spoofing_detection(self):
-        """
-        Detect arp spoofing
-        """
-
         def __control(packet):
             return self.arp_spoofing_detected is not None
 
@@ -253,57 +235,8 @@ def get_mac_address(self, target):
         return self.arp_spoofing_detected
 
     def control(self):
-        """
-        Main function
-        """
-
         return self.arp_spoofing_detection()
 
-
-def arguments():
-    """
-    Main function
-    """
-
-    parser = ArgumentParser()
-    parser.add_argument("-i", "--iface", type=str, help="Interface")
-    parser.add_argument("-t", "--timeout", type=int, help="Timeout")
-
-    args = parser.parse_args()
-
-    the_pywall = pywall()
-
-    if args.iface is not None:
-        the_pywall.iface = args.iface
-    if args.timeout is not None:
-        the_pywall.timeout = args.timeout
-
-    print(the_pywall.control())
-
-def handle_client(client_socket, client_addr):
-    client_ip, _ = client_addr
-
-    try:
-        # Ajout de la détection ARP spoofing
-        arp_detector = pywall(iface="your_network_interface", timeout=15)
-        arp_spoofing_detected = arp_detector.control()
-
-        if is_locked and not arp_spoofing_detected:
-            response = b"Pare-feu verrouillé. Veuillez entrer le mot de passe admin.\n"
-        elif not is_locked and arp_spoofing_detected:
-            response = b"Détection ARP spoofing. Veuillez entrer le mot de passe admin.\n"
-        elif is_locked and arp_spoofing_detected:
-            response = b"Pare-feu verrouillé et détection ARP spoofing. Veuillez entrer le mot de passe admin.\n"
-        else:
-            # Ajustement de la logique pour imprimer un message lorsque tout va bien
-            print("Tout va bien. Connexion autorisée par le pare-feu.")
-            response = b"Connexion autorisée par le pare-feu.\n"
-
-        client_socket.send(response)
-    finally:
-        client_socket.close()
-        reset_connection_count(client_ip)
-        
 def start_firewall_and_server():
     nfqueue = NetfilterQueue()
     nfqueue.bind(1, firewall)
@@ -327,28 +260,22 @@ def start_firewall_and_server():
         nfqueue.unbind()
 
 if __name__ == "__main__":
-    # ... (Starting threads and firewall)
-
     admin_thread = threading.Thread(target=handle_admin_commands)
     admin_thread.start()
     real_time_monitoring_thread = threading.Thread(target=real_time_monitoring)
     real_time_monitoring_thread.start()
 
     interfaces = get_interfaces()
-
     if len(interfaces.items()) < 4:
         print("Not enough interfaces")
         exit()
 
-    print("FIREWALL IS RUNNING ")
+    print("FIREWALL IS RUNNING")
     try:
         while True:
-            for _ in range(10):
-                time.sleep(0.2)
+            time.sleep(0.2)
     except KeyboardInterrupt:
         print("\nEXITING FIREWALL")
-        # Terminer les threads proprement ici (par exemple, en utilisant des signaux d'arrêt)
         exit(1)
 
-    # Starting
     start_firewall_and_server()
