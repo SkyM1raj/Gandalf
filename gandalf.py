@@ -6,7 +6,6 @@ import logging
 from netfilterqueue import NetfilterQueue
 from scapy.all import *
 from cryptography.fernet import Fernet
-from importlib import import_module
 
 # Constants and global variables
 SERVER_IP = '0.0.0.0'
@@ -118,7 +117,7 @@ def handle_client(client_socket, client_addr):
 
     try:
         # ARP Spoofing detection
-        arp_detector = pywall(iface="your_network_interface", timeout=15)
+        arp_detector = pywall(iface="eth0", timeout=15)  # Update "eth0" to your actual network interface
         arp_spoofing_detected = arp_detector.control()
 
         if is_locked and not arp_spoofing_detected:
@@ -140,11 +139,7 @@ def handle_client(client_socket, client_addr):
             elif too_many_connections(client_ip):
                 response = b"Trop de connexions depuis votre adresse IP. Redirection en cours...\n"
                 increment_connection_count(client_ip)
-                redirect_client(client_socket)
                 write_log(f"Connection attempt from {client_ip}: Redirected due to too many connections")
-            elif not verify_client_integrity(client_socket):
-                response = b"Client non authentifié. Fermer la connexion.\n"
-                write_log(f"Connection attempt from {client_ip}: Authentication failed")
             else:
                 with lock:
                     last_connection_times[client_ip] = time.time()
@@ -241,41 +236,29 @@ def start_firewall_and_server():
     nfqueue = NetfilterQueue()
     nfqueue.bind(1, firewall)
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
-        server.bind((SERVER_IP, SERVER_PORT))
-        server.listen(5)
+    threading.Thread(target=handle_admin_commands, daemon=True).start()
 
-        print(f"Pare-feu démarré, en écoute sur {SERVER_IP}:{SERVER_PORT}")
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_socket.bind((SERVER_IP, SERVER_PORT))
+    server_socket.listen(5)
+    print(f"Serveur démarré sur {SERVER_IP}:{SERVER_PORT}...")
 
-        while True:
-            client_socket, client_addr = server.accept()
-            client_thread = threading.Thread(target=handle_client, args=(client_socket, client_addr))
-            client_thread.start()
+    firewall_thread = threading.Thread(target=nfqueue.run, daemon=True)
+    firewall_thread.start()
 
-    try:
-        nfqueue.run()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        nfqueue.unbind()
+    while True:
+        try:
+            client_socket, client_addr = server_socket.accept()
+            threading.Thread(target=handle_client, args=(client_socket, client_addr)).start()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            write_log(f"Erreur dans l'acceptation de la connexion : {e}")
+
+    nfqueue.unbind()
+    server_socket.close()
+    firewall_thread.join()
 
 if __name__ == "__main__":
-    admin_thread = threading.Thread(target=handle_admin_commands)
-    admin_thread.start()
-    real_time_monitoring_thread = threading.Thread(target=real_time_monitoring)
-    real_time_monitoring_thread.start()
-
-    interfaces = get_interfaces()
-    if len(interfaces.items()) < 4:
-        print("Not enough interfaces")
-        exit()
-
-    print("FIREWALL IS RUNNING")
-    try:
-        while True:
-            time.sleep(0.2)
-    except KeyboardInterrupt:
-        print("\nEXITING FIREWALL")
-        exit(1)
-
     start_firewall_and_server()
