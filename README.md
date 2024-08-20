@@ -1,8 +1,10 @@
 # Gandalf
 
+## Script FireWall 
+
 Gandalf is a Python script that acts as a basic firewall with additional features such as ARP spoofing detection. It utilizes NetfilterQueue and Scapy for packet manipulation and inspection.
 
-## Features
+###  ---- Features ----
 
 - **IP Filtering:** Blocks incoming packets from specified IP addresses.
 - **Port Filtering:** Blocks packets targeting specified destination ports.
@@ -11,21 +13,21 @@ Gandalf is a Python script that acts as a basic firewall with additional feature
 - **ARP Spoofing Detection:** Utilizes an ARP detector to identify ARP spoofing in the network.
 - **Admin Commands:** Allows the user to lock/unlock the firewall using an admin password.
 
-## Prerequisites
+###  ---- Prerequisites ----
 
 - Python 3.x
 - NetfilterQueue
 - Scapy
 
-###Install the required dependencies using:
+## Install the required dependencies using:
 
 ```bash
 pip install netfilterqueue scapy cryptography
 ```
 
-## Configuration
+###  - Configuration
 
-###1. Create a `firewallrules.json` file to define your firewall rules. Example:
+1. Create a `firewallrules.json` file to define your firewall rules. Example:
 
 ```json
 {
@@ -38,21 +40,21 @@ pip install netfilterqueue scapy cryptography
 }
 ```
 
-###2. Set the `SERVER_IP`, `SERVER_PORT`, and `ALLOWED_IPS` in the script to match your network configuration.
+2. Set the `SERVER_IP`, `SERVER_PORT`, and `ALLOWED_IPS` in the script to match your network configuration.
 
-## Usage
+###  - Usage
 
-###1. Run the script:
+1. Run the script:
 
 ```bash
 python firewall.py
 ```
 
-###2. The script will start listening for incoming connections on the specified IP and port.
+2. The script will start listening for incoming connections on the specified IP and port.
 
-###3. Use the `handle_admin_commands` function to lock/unlock the firewall and manage security settings.
+3. Use the `handle_admin_commands` function to lock/unlock the firewall and manage security settings.
 
-## Notes
+### Notes
 
 - Make sure to customize the script according to your network interface (replace "your_network_interface" with the actual interface name).
 - The script logs activities in the `firewall_logs.log` file.
