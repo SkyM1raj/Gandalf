@@ -6,6 +6,8 @@ import logging
 from netfilterqueue import NetfilterQueue
 from scapy.all import *
 from cryptography.fernet import Fernet
+import netifaces
+import psutil  # For real-time monitoring of network stats
 
 # Constants and global variables
 SERVER_IP = '0.0.0.0'
@@ -117,7 +119,7 @@ def handle_client(client_socket, client_addr):
 
     try:
         # ARP Spoofing detection
-        arp_detector = pywall(iface="eth0", timeout=15)  # Update "eth0" to your actual network interface
+        arp_detector = pywall(iface="eth0", timeout=15)  # Replace "eth0" with your network interface
         arp_spoofing_detected = arp_detector.control()
 
         if is_locked and not arp_spoofing_detected:
@@ -139,7 +141,11 @@ def handle_client(client_socket, client_addr):
             elif too_many_connections(client_ip):
                 response = b"Trop de connexions depuis votre adresse IP. Redirection en cours...\n"
                 increment_connection_count(client_ip)
+                redirect_client(client_socket)
                 write_log(f"Connection attempt from {client_ip}: Redirected due to too many connections")
+            elif not verify_client_integrity(client_socket):
+                response = b"Client non authentifié. Fermer la connexion.\n"
+                write_log(f"Connection attempt from {client_ip}: Authentication failed")
             else:
                 with lock:
                     last_connection_times[client_ip] = time.time()
@@ -215,50 +221,83 @@ class pywall:
 
         def __process_sniffed_packet(packet):
             if packet.haslayer(ARP) and packet[ARP].op == 2:
-                real_mac = self.get_mac_address(packet[ARP].psrc)
-                response_mac = packet[ARP].hwsrc
-                self.arp_spoofing_detected = real_mac != response_mac
+                try:
+                    real_mac = self.get_mac_address(packet[ARP].psrc)[0]
+                    response_mac = packet[ARP].hwsrc
 
-        sniff(
-            iface=self.iface,
-            store=False,
-            stop_filter=__control,
-            prn=__process_sniffed_packet,
-            timeout=self.timeout,
-        )
+                    if real_mac != response_mac:
+                        self.arp_spoofing_detected = True
+                        write_log("ARP spoofing attack detected.")
+                        return
+                except IndexError:
+                    return
 
-        return self.arp_spoofing_detected
+        sniff(iface=self.iface, store=False, prn=__process_sniffed_packet, stop_filter=__control, timeout=self.timeout)
 
     def control(self):
-        return self.arp_spoofing_detection()
+        self.arp_spoofing_detection()
+        return self.arp_spoofing_detected
 
-def start_firewall_and_server():
+def start_firewall():
     nfqueue = NetfilterQueue()
     nfqueue.bind(1, firewall)
 
-    threading.Thread(target=handle_admin_commands, daemon=True).start()
+    try:
+        write_log("Firewall started successfully.")
+        nfqueue.run()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        nfqueue.unbind()
 
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_socket.bind((SERVER_IP, SERVER_PORT))
-    server_socket.listen(5)
-    print(f"Serveur démarré sur {SERVER_IP}:{SERVER_PORT}...")
+# Fonction pour obtenir les interfaces réseau
+def get_interfaces():
+    interfaces = netifaces.interfaces()
+    interface_details = {}
 
-    firewall_thread = threading.Thread(target=nfqueue.run, daemon=True)
-    firewall_thread.start()
+    for interface in interfaces:
+        addresses = netifaces.ifaddresses(interface)
+        ip_address = addresses.get(netifaces.AF_INET, [{}])[0].get('addr', 'No IP')
+        interface_details[interface] = ip_address
+
+    return interface_details
+
+# Fonction pour la surveillance en temps réel
+def real_time_monitoring():
+    while True:
+        net_io = psutil.net_io_counters(pernic=True)
+        for interface, stats in net_io.items():
+            write_log(f"Monitoring {interface}: Bytes Sent={stats.bytes_sent}, Bytes Received={stats.bytes_recv}")
+        time.sleep(10)  # Intervalle de surveillance
+
+def start_server():
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.bind((SERVER_IP, SERVER_PORT))
+    server.listen(5)
+    write_log(f"Server started on {SERVER_IP}:{SERVER_PORT}")
 
     while True:
-        try:
-            client_socket, client_addr = server_socket.accept()
-            threading.Thread(target=handle_client, args=(client_socket, client_addr)).start()
-        except KeyboardInterrupt:
-            break
-        except Exception as e:
-            write_log(f"Erreur dans l'acceptation de la connexion : {e}")
-
-    nfqueue.unbind()
-    server_socket.close()
-    firewall_thread.join()
+        client_socket, client_addr = server.accept()
+        write_log(f"Accepted connection from {client_addr}")
+        client_handler = threading.Thread(target=handle_client, args=(client_socket, client_addr))
+        client_handler.start()
 
 if __name__ == "__main__":
-    start_firewall_and_server()
+    # Lancer la surveillance en temps réel dans un thread séparé
+    real_time_monitoring_thread = threading.Thread(target=real_time_monitoring)
+    real_time_monitoring_thread.daemon = True  # S'arrête avec le programme principal
+    real_time_monitoring_thread.start()
+
+    # Afficher les interfaces réseau disponibles
+    interfaces = get_interfaces()
+    print("Available network interfaces:")
+    for iface, ip in interfaces.items():
+        print(f"Interface: {iface}, IP: {ip}")
+
+    # Lancer le serveur dans un thread séparé
+    server_thread = threading.Thread(target=start_server)
+    server_thread.daemon = True
+    server_thread.start()
+
+    # Lancer le pare-feu dans le thread principal
+    start_firewall()
