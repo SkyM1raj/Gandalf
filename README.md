@@ -1,4 +1,4 @@
-<h1 align="center">Project Gandalf</h1>
+<h1 align="center">🧙‍♂️ Project Gandalf 🧙‍♂️</h1>
 
 **Gandalf** est un script Python qui agit comme un pare-feu de base avec des fonctionnalités supplémentaires telles que la détection de spoofing ARP. Il utilise NetfilterQueue et Scapy pour la manipulation et l'inspection des paquets.
 
