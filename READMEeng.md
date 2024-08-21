@@ -1,4 +1,4 @@
-# Project Gandalf - Python Firewall
+<h1 align="center">Project Gandalf</h1>
 
 **Gandalf** is a Python script that acts as a basic firewall with additional features such as ARP spoofing detection. It uses NetfilterQueue and Scapy for packet manipulation and inspection.
 
