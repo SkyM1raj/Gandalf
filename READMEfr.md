@@ -85,6 +85,10 @@ Le script surveille en temps réel les statistiques du réseau pour chaque inter
 
 Toutes les activités du pare-feu sont enregistrées dans le fichier \`firewall_logs.log\`. Cela inclut les tentatives de connexion, les détections d'attaques, et les modifications des paramètres du pare-feu.
 
-## 👤 Auteur
+## Support Docker
 
-- **[BlackBird63030]**
+Vous pouvez utiliser Docker pour implémenter le projet dans un conteneur
+
+
+
+
