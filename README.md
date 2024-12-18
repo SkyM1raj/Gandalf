@@ -87,7 +87,3 @@ All firewall activities are logged into the \`firewall_logs.log\` file. This inc
 ## Docker Supporting
 
 You can use docker and use it to implement the firewall in a container
-
-## 👤 Author
-
-- **[BlackBird63030]**
