@@ -84,6 +84,10 @@ The script monitors real-time network statistics for each available interface an
 
 All firewall activities are logged into the \`firewall_logs.log\` file. This includes connection attempts, attack detections, and changes to firewall settings.
 
+## Docker Supporting
+
+You can use docker and use it to implement the firewall in a container
+
 ## 👤 Author
 
 - **[BlackBird63030]**
