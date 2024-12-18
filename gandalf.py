@@ -123,33 +123,33 @@ def handle_client(client_socket, client_addr):
         arp_spoofing_detected = arp_detector.control()
 
         if is_locked and not arp_spoofing_detected:
-            response = b"Pare-feu verrouillé. Veuillez entrer le mot de passe admin.\n"
+            response = "Pare-feu verrouillé. Veuillez entrer le mot de passe admin.\n".encode("utf-8")
         elif not is_locked and arp_spoofing_detected:
-            response = b"Détection ARP spoofing. Veuillez entrer le mot de passe admin.\n"
+            response = "Détection ARP spoofing. Veuillez entrer le mot de passe admin.\n".encode("utf-8")
         elif is_locked and arp_spoofing_detected:
-            response = b"Pare-feu verrouillé et détection ARP spoofing. Veuillez entrer le mot de passe admin.\n"
+            response = "Pare-feu verrouillé et détection ARP spoofing. Veuillez entrer le mot de passe admin.\n".encode("utf-8")
         else:
             if not is_valid_ip(client_ip):
-                response = b"Adresse IP invalide.\n"
+                response = "Adresse IP invalide.\n".encode("utf-8")
                 write_log(f"Connection attempt from {client_ip}: Invalid IP")
             elif not is_allowed(client_ip):
-                response = b"Connexion bloquée par le pare-feu.\n"
+                response = "Connexion bloquée par le pare-feu.\n".encode("utf-8")
                 write_log(f"Connection attempt from {client_ip}: Blocked by firewall")
             elif not can_connect(client_ip):
-                response = b"Connexions trop fréquentes. Veuillez patienter.\n"
+                response = "Connexions trop fréquentes. Veuillez patienter.\n".encode("utf-8")
                 write_log(f"Connection attempt from {client_ip}: Too frequent connections")
             elif too_many_connections(client_ip):
-                response = b"Trop de connexions depuis votre adresse IP. Redirection en cours...\n"
+                response = "Trop de connexions depuis votre adresse IP. Redirection en cours...\n".encode("utf-8")
                 increment_connection_count(client_ip)
                 redirect_client(client_socket)
                 write_log(f"Connection attempt from {client_ip}: Redirected due to too many connections")
             elif not verify_client_integrity(client_socket):
-                response = b"Client non authentifié. Fermer la connexion.\n"
+                response = "Client non authentifié. Fermer la connexion.\n".encode("utf-8")
                 write_log(f"Connection attempt from {client_ip}: Authentication failed")
             else:
                 with lock:
                     last_connection_times[client_ip] = time.time()
-                response = b"Connexion autorisée par le pare-feu.\n"
+                response = "Connexion autorisée par le pare-feu.\n".encode("utf-8")
                 write_log(f"Connection from {client_ip}: Authorized by firewall")
         client_socket.send(response)
     finally:
